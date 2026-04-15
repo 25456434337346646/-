@@ -24,7 +24,7 @@ logger = logging.getLogger("astrbot")
 LLM_API_URL = "http://127.0.0.1:8000/v1/bot/route_intent" # 后端大模型解析接口 URL
 DELAY_BETWEEN_CHAT = 1.5                                    # Chat 模式下消息发送间隔（秒）
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于意图路由与多模态能力的PDF生成双轨插件 (Playwright版)", "1.3.1")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于意图路由与多模态能力的PDF生成双轨插件 (Playwright版)", "1.3.2")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -40,7 +40,12 @@ class MultimodalPDFRouterPlugin(Star):
         image_urls = []
 
         # 1. 遍历并提炼事件组件
-        for comp in event.message_obj.components:
+        # 在旧版 AstrBot v4.x 中，消息字段名为 .message 而非 .components
+        segments = getattr(event.message_obj, "message", [])
+        if not segments:
+            segments = getattr(event.message_obj, "components", [])
+            
+        for comp in segments:
             if isinstance(comp, Plain):
                 question_texts.append(comp.text)
             elif isinstance(comp, Image):
