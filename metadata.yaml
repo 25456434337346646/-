@@ -1,0 +1,6 @@
+name: astrbot_plugin_multimodal_pdf_router
+show_name: AstrBot 多模态 PDF 路由插件
+desc: 基于意图路由与多模态能力的PDF生成双轨插件，支持 Chat 与 PDF 渲染模式切换。
+version: 1.2.0
+author: Anti-Gravity Agent
+url: https://github.com/25456434337346646/astrbot-plugin-multimodal-pdf-router
