@@ -7,7 +7,7 @@ import logging
 from playwright.async_api import async_playwright
 
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.star import Context, Star, register, base_config
+from astrbot.api.star import Context, Star, register
 from astrbot.api.message_components import Plain, Image, Reply, File
 
 logger = logging.getLogger("astrbot")
@@ -20,12 +20,11 @@ logger = logging.getLogger("astrbot")
 # 3. 防止休眠机制：考虑到异步服务在 M4 长期运行，必须关闭系统设置中的“使硬盘进入睡眠”选项！
 # =================================================================================
 
-@base_config
-class MultimodalPDFRouterConfig:
-    llm_api_url: str = "http://127.0.0.1:8000/v1/bot/route_intent" # 后端大模型解析接口 URL
-    delay_between_chat: float = 1.5 # Chat 模式下消息发送间隔（秒）
+# 插件配置 (主人可以在此处手动修改)
+LLM_API_URL = "http://127.0.0.1:8000/v1/bot/route_intent" # 后端大模型解析接口 URL
+DELAY_BETWEEN_CHAT = 1.5                                    # Chat 模式下消息发送间隔（秒）
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于意图路由与多模态能力的PDF生成双轨插件 (Playwright版)", "1.2.0")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于意图路由与多模态能力的PDF生成双轨插件 (Playwright版)", "1.2.1")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -73,7 +72,7 @@ class MultimodalPDFRouterPlugin(Star):
         ans_json = {}
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(self.config.llm_api_url, json=payload, timeout=90) as response:
+                async with session.post(LLM_API_URL, json=payload, timeout=90) as response:
                     if response.status == 200:
                         ans_json = await response.json()
                     else:
@@ -91,7 +90,7 @@ class MultimodalPDFRouterPlugin(Star):
             for idx, msg in enumerate(chat_messages):
                 await event.reply(msg)
                 if idx < len(chat_messages) - 1:
-                    await asyncio.sleep(self.config.delay_between_chat)
+                    await asyncio.sleep(DELAY_BETWEEN_CHAT)
                     
         elif mode == "pdf":
             await event.reply("收到，该问题涉及复杂推导，正在为您生成格式化 PDF 报告...")
