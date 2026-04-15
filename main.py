@@ -12,7 +12,7 @@ from astrbot.api import AstrBotConfig
 
 logger = logging.getLogger("astrbot")
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.6.9")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.6.10")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -59,15 +59,17 @@ class MultimodalPDFRouterPlugin(Star):
                     adapter = self.context.get_platform_inst(event.get_platform_name())
                     if adapter:
                         msg_data = await adapter.call_api("get_msg", message_id=target_msg_id)
-                        # --- 核心探测点：打印真实报文 ---
-                        logger.info(f"[DEBUG_RAW] 原始消息内容: {msg_data}")
-                        logger.info(f"[DEBUG_RAW] 原始消息内容: {msg_data}")
-                        
                         if msg_data and "message" in msg_data:
                             for segment in msg_data["message"]:
                                 if isinstance(segment, dict) and segment.get("type") == "image":
-                                    img_url = segment.get("data", {}).get("url")
-                                    if img_url: image_urls.append(img_url)
+                                    # --- 贪婪匹配 NapCat/OneBot 各类可能的图片字段 ---
+                                    seg_data = segment.get("data", {})
+                                    img_url = seg_data.get("url") or seg_data.get("file") or seg_data.get("path")
+                                    if img_url: 
+                                        # 如果是本地文件路径，尝试转换为 file:// 协议
+                                        if os.path.isabs(img_url) and not img_url.startswith("file://"):
+                                            img_url = f"file://{img_url}"
+                                        image_urls.append(img_url)
                 except Exception as e:
                     logger.error(f"[多模态解析] 提取图片报错: {e}")
 
