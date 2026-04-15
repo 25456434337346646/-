@@ -12,7 +12,7 @@ from astrbot.api import AstrBotConfig
 
 logger = logging.getLogger("astrbot")
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.6.6")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.6.7")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -50,8 +50,11 @@ class MultimodalPDFRouterPlugin(Star):
                 image_urls.append(comp.url)
             elif isinstance(comp, Reply):
                 try:
-                    target_msg_id = comp.id
-                    # 在 v4.23.1 中，适配器实例通过 get_platform_inst 获取
+                    # 在 v4.23.1 的 Reply 组件中，消息 ID 可能存储在 start_id 或 id 字段中
+                    target_msg_id = getattr(comp, "start_id", getattr(comp, "id", None))
+                    if not target_msg_id:
+                        continue
+                        
                     adapter = self.context.get_platform_inst(event.get_platform_name())
                     if adapter:
                         msg_data = await adapter.call_api("get_msg", message_id=target_msg_id)
