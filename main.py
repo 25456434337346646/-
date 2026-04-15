@@ -24,15 +24,16 @@ logger = logging.getLogger("astrbot")
 LLM_API_URL = "http://127.0.0.1:8000/v1/bot/route_intent" # 后端大模型解析接口 URL
 DELAY_BETWEEN_CHAT = 1.5                                    # Chat 模式下消息发送间隔（秒）
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于意图路由与多模态能力的PDF生成双轨插件 (Playwright版)", "1.3.0")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于意图路由与多模态能力的PDF生成双轨插件 (Playwright版)", "1.3.1")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
         self.data_dir = os.path.join(os.getcwd(), "data")
         os.makedirs(self.data_dir, exist_ok=True)
 
-    # 使用最通用的事件监听方式，确保多版本兼容。监听所有 @ 机器人的消息。
-    @filter.on_event(filter.EventFilterType.AT_ME)
+    # 终极修复：经嗅探，当前版本仅支持 command 监听。
+    # 用户现在可以通过 /ai [问题] 或在 @机器人 后输入 /ai 来触发。
+    @filter.command("ai", alias={"ask", "解答", "解析"})
     async def handle_multimodal_query(self, event: AstrMessageEvent):
         """核心交互流主函数"""
         question_texts = []
