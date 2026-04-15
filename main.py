@@ -1,140 +1,135 @@
-import os
-import uuid
-import json
+import logging
 import asyncio
 import aiohttp
-import logging
+import os
+import time
+import json
 from playwright.async_api import async_playwright
-
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api.message_components import Plain, Image, Reply, File
+from astrbot.api import AstrBotConfig
 
 logger = logging.getLogger("astrbot")
 
-# =================================================================================
-# [环境级约束与物理部署要求 (Mac mini M4)]
-# 1. 渲染引擎：本项目已升级至 Playwright，不再依赖 wkhtmltopdf。
-# 2. 读写权限白名单：必须将运行此脚本终端 (如 iTerm / Terminal) 或 Python 环境
-#    加入“完全磁盘访问权限”(系统设置 -> 隐私与安全性)-> Full Disk Access 白名单。
-# 3. 防止休眠机制：考虑到异步服务在 M4 长期运行，必须关闭系统设置中的“使硬盘进入睡眠”选项！
-# =================================================================================
-
-# 插件配置 (主人可以在此处手动修改)
-LLM_API_URL = "http://127.0.0.1:8000/v1/bot/route_intent" # 后端大模型解析接口 URL
-DELAY_BETWEEN_CHAT = 1.5                                    # Chat 模式下消息发送间隔（秒）
-
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于意图路由与多模态能力的PDF生成双轨插件 (Playwright版)", "1.3.3")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "内置 LLM 路由引擎的多模态 PDF 生成插件", "1.4.0")
 class MultimodalPDFRouterPlugin(Star):
-    def __init__(self, context: Context):
+    def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
-        self.data_dir = os.path.join(os.getcwd(), "data")
+        self.config = config
+        self.data_dir = os.path.join(os.getcwd(), "data", "plugins", "multimodal_pdf_router")
         os.makedirs(self.data_dir, exist_ok=True)
 
-    # 终极修复：经嗅探，当前版本仅支持 command 监听。
-    # 用户现在可以通过 /ai [问题] 或在 @机器人 后输入 /ai 来触发。
     @filter.command("ai", alias={"ask", "解答", "解析"})
     async def handle_multimodal_query(self, event: AstrMessageEvent):
-        """核心交互流主函数"""
+        """内置大脑的交互逻辑：直接调用 LLM 并根据意图路由"""
+        
+        # 0. 检查配置
+        api_key = self.config.get("llm_api_key", "")
+        base_url = self.config.get("llm_base_url", "https://api.deepseek.com/v1")
+        model = self.config.get("llm_model", "deepseek-chat")
+        
+        if not api_key:
+            yield event.plain_result("⚠️ 请先在插件配置页面填写您的 LLM API Key！")
+            return
+
+        # 1. 提取消息内容
         question_texts = []
         image_urls = []
-
-        # 1. 遍历并提炼事件组件
-        # 在旧版 AstrBot v4.x 中，消息字段名为 .message 而非 .components
-        segments = getattr(event.message_obj, "message", [])
-        if not segments:
-            segments = getattr(event.message_obj, "components", [])
+        segments = getattr(event.message_obj, "message", []) or getattr(event.message_obj, "components", [])
             
         for comp in segments:
             if isinstance(comp, Plain):
                 question_texts.append(comp.text)
             elif isinstance(comp, Image):
-                if hasattr(comp, "url") and comp.url:
-                    image_urls.append(comp.url)
+                image_urls.append(comp.url)
             elif isinstance(comp, Reply):
                 try:
                     target_msg_id = comp.id
                     msg_data = await event.adapter.call_api("get_msg", message_id=target_msg_id)
-                    if msg_data and isinstance(msg_data, dict):
-                        if "message" in msg_data:
-                            for segment in msg_data["message"]:
-                                if isinstance(segment, dict) and segment.get("type") == "image":
-                                    img_url = segment.get("data", {}).get("url")
-                                    if img_url:
-                                        image_urls.append(img_url)
+                    if msg_data and "message" in msg_data:
+                        for segment in msg_data["message"]:
+                            if isinstance(segment, dict) and segment.get("type") == "image":
+                                img_url = segment.get("data", {}).get("url")
+                                if img_url: image_urls.append(img_url)
                 except Exception as e:
-                    logger.error(f"[多模态解析] 提取 Reply 组件中的引用图片出现故障: {e}")
+                    logger.error(f"[多模态解析] 提取图片报错: {e}")
 
-        question = " ".join(question_texts).strip()
-        
+        question = " ".join(question_texts).replace("/ai", "").replace("/ask", "").replace("/解答", "").replace("/解析", "").strip()
         if not question and not image_urls:
-            yield event.plain_result("未检测到有效意图，请使用 /ai 指令时发送具体的文本或相应的图片素材。")
+            yield event.plain_result("主人，请发送具体的文本或图片，并告诉我您想做什么。")
             return
-            
+
+        # 2. 内置大脑 Prompt：判断意图并生成内容
+        # 目标：让 LLM 返回 JSON 格式，包含 mode ('chat' 或 'pdf') 和对应内容
+        system_prompt = (
+            "你是一个智能助手。你需要分析用户的输入（可能包含图片描述）并决定回应模式。\n"
+            "1. 如果用户只是进行普通聊天、问好、或者是简单问答，请使用 'chat' 模式。\n"
+            "2. 如果用户要求进行复杂的学术推导、长篇总结、数学解题且需要精美排版，请使用 'pdf' 模式。\n"
+            "你的输出必须是一个合法的 JSON 字符串，格式如下：\n"
+            "{\"mode\": \"chat\", \"chat_messages\": [\"回复内容1\", \"回复内容2\"]}\n"
+            "或\n"
+            "{\"mode\": \"pdf\", \"pdf_content\": \"HTML格式的精美报告内容\"}\n"
+            "请直接返回 JSON，不要包含任何 Markdown 代码块包裹。"
+        )
+
+        user_content = [{"type": "text", "text": question}]
+        for url in image_urls:
+            user_content.append({"type": "image_url", "image_url": {"url": url}})
+
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         payload = {
-            "question": question,
-            "image_urls": image_urls
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content}
+            ],
+            "response_format": {"type": "json_object"}
         }
-        
-        ans_json = {}
+
+        # 3. 发起同步请求 (内置大脑)
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(LLM_API_URL, json=payload, timeout=90) as response:
-                    if response.status == 200:
-                        ans_json = await response.json()
-                    else:
-                        yield event.plain_result(f"远程系统异常，链路返回状态码: {response.status}")
+                async with session.post(f"{base_url.rstrip('/')}/chat/completions", json=payload, headers=headers) as response:
+                    if response.status != 200:
+                        err_text = await response.text()
+                        yield event.plain_result(f"❌ LLM 请求失败 ({response.status}): {err_text}")
                         return
+                    
+                    res_data = await response.json()
+                    ans_str = res_data['choices'][0]['message']['content']
+                    ans_json = json.loads(ans_str)
         except Exception as e:
-            logger.error(f"[通信模块] 向大语言模型发出调度请求失败: {e}")
-            yield event.plain_result("后端 LLM 的路由 API 访问失败，请确保您的后端服务已启动并检查 127.0.0.1:8000 是否可用。")
+            yield event.plain_result(f"🤯 思考过程发生异常: {e}")
             return
 
+        # 4. 执行路由分发
         mode = ans_json.get("mode", "chat")
         
         if mode == "chat":
-            chat_messages = ans_json.get("chat_messages", [])
-            for idx, msg in enumerate(chat_messages):
-                yield event.plain_result(msg)
-                if idx < len(chat_messages) - 1:
-                    await asyncio.sleep(DELAY_BETWEEN_CHAT)
-                    
+            msgs = ans_json.get("chat_messages", ["主人，我暂时不知道怎么回答。"])
+            for idx, m in enumerate(msgs):
+                yield event.plain_result(m)
+                if idx < len(msgs) - 1:
+                    await asyncio.sleep(self.config.get("delay_between_chat", 1.5))
+        
         elif mode == "pdf":
-            yield event.plain_result("收到，该问题涉及复杂推导，正在为您生成格式化 PDF 报告...")
-            
+            yield event.plain_result("🚀 发现核心意图，正在为您整理精美 PDF 报告...")
             raw_pdf_content = ans_json.get("pdf_content", "")
-            html_content = f"<!DOCTYPE html><html><head><meta charset='UTF-8'><style>body{{font-family: sans-serif; padding: 20px; line-height: 1.6;}} img {{max-width: 100%;}}</style></head><body>{raw_pdf_content}</body></html>"
+            html_content = f"<!DOCTYPE html><html><head><meta charset='UTF-8'><style>body{{font-family: sans-serif; padding: 20px;}} img{{max-width:100%}}</style></head><body>{raw_pdf_content}</body></html>"
             
-            filename = f"out_{uuid.uuid4().hex}.pdf"
-            tmp_pdf_path = os.path.join(self.data_dir, filename)
-            
+            tmp_pdf_path = os.path.join(self.data_dir, f"report_{int(time.time())}.pdf")
             try:
-                # 使用 Playwright 进行异步 PDF 渲染
                 async with async_playwright() as p:
-                    browser = await p.chromium.launch(headless=True)
-                    context = await browser.new_context()
-                    page = await context.new_page()
-                    
-                    # 设置页面内容并等待加载完成
-                    await page.set_content(html_content, wait_until="networkidle")
-                    
-                    # 生成 PDF
-                    await page.pdf(path=tmp_pdf_path, format="A4", print_background=True, margin={"top": "20px", "bottom": "20px", "left": "20px", "right": "20px"})
-                    
+                    browser = await p.chromium.launch()
+                    page = await browser.new_page()
+                    await page.set_content(html_content)
+                    await page.pdf(path=tmp_pdf_path, format="A4")
                     await browser.close()
-                
-                # 发送文件
                 yield event.file_result(tmp_pdf_path)
-                
-            except Exception as e:
-                logger.error(f"[渲染模块] Playwright 生成 PDF 失败：{e}")
-                yield event.plain_result("PDF 生成引擎发生异常，请联系主人检查 Playwright 环境是否正确安装。")
+            except Exception as pe:
+                yield event.plain_result(f"PDF 渲染失败: {pe}")
             finally:
-                if os.path.exists(tmp_pdf_path):
-                    try:
-                        os.remove(tmp_pdf_path)
-                    except Exception as rm_e:
-                        logger.error(f"严重: PDF 缓存文件删除失败: {rm_e}")
-                        
+                if os.path.exists(tmp_pdf_path): os.remove(tmp_pdf_path)
         else:
-            yield event.plain_result(f"发现异常，模型指令下发了无法支持的基础模式: {mode}。")
+            yield event.plain_result("模型返回了未知的处理模式。")

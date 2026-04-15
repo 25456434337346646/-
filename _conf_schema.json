@@ -1,0 +1,27 @@
+{
+    "llm_api_key": {
+        "description": "大语言模型 API Key",
+        "type": "string",
+        "hint": "从 OpenAI, DeepSeek 或硅基流动获取的 API 密钥",
+        "obvious_hint": true,
+        "default": ""
+    },
+    "llm_base_url": {
+        "description": "大语言模型 API Base URL",
+        "type": "string",
+        "hint": "接口地址，例如 https://api.deepseek.com/v1",
+        "default": "https://api.deepseek.com/v1"
+    },
+    "llm_model": {
+        "description": "使用的模型名称",
+        "type": "string",
+        "hint": "例如 gpt-4o 或 deepseek-chat",
+        "default": "deepseek-chat"
+    },
+    "delay_between_chat": {
+        "description": "Chat 模式单条消息发送时延",
+        "type": "float",
+        "hint": "模拟真人打字的速度（秒）",
+        "default": 1.5
+    }
+}
