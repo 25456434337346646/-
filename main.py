@@ -70,6 +70,7 @@ class MultimodalPDFRouterPlugin(Star):
             yield event.plain_result(help_text)
             return
 
+        max_retries = 2
         # --- 视觉提取逻辑（带重试） ---
         image_description = ""
         if image_urls:
@@ -86,7 +87,6 @@ class MultimodalPDFRouterPlugin(Star):
                 "messages": [{"role": "user", "content": [{"type": "text", "text": vision_prompt}, *[{"type": "image_url", "image_url": {"url": url}} for url in image_urls]]}]
             }
             
-            max_retries = 2
             for attempt in range(max_retries + 1):
                 try:
                     if attempt == 0: yield event.plain_result(f"🔍 正在通过 {vision_model} 像素级提取细节...")
