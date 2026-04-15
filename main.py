@@ -12,7 +12,7 @@ from astrbot.api import AstrBotConfig
 
 logger = logging.getLogger("astrbot")
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "支持多模态分流的 PDF 生成插件", "1.5.0")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "支持多模态分流与友好报错的 PDF 生成插件", "1.5.1")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -111,6 +111,11 @@ class MultimodalPDFRouterPlugin(Star):
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(f"{base_url.rstrip('/')}/chat/completions", json=payload, headers=headers) as response:
+                    # 优先处理 429 频率限制错误
+                    if response.status == 429:
+                        yield event.plain_result("⚠️ 请求过于频繁！您的大模型 API 提供商限制了目前的访问速度。如果您使用的是免费 Key，请稍微等几分钟再试，或更换更高等级的 Key。")
+                        return
+
                     if response.status != 200:
                         err_text = await response.text()
                         yield event.plain_result(f"❌ LLM 请求失败 ({response.status}): {err_text}")
