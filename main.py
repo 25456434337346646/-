@@ -12,7 +12,7 @@ from astrbot.api import AstrBotConfig
 
 logger = logging.getLogger("astrbot")
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.6.0")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.6.1")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -31,6 +31,8 @@ class MultimodalPDFRouterPlugin(Star):
         # 0.1 分流逻辑：有图用视觉模型，没图用文本模型
         has_images = False # 待解析
         # ------------------
+        
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         
         if not api_key:
             yield event.plain_result("⚠️ 请先在插件配置页面填写您的 LLM API Key！")
@@ -144,9 +146,6 @@ class MultimodalPDFRouterPlugin(Star):
                     ans_json = json.loads(ans_str)
         except Exception as e:
             yield event.plain_result(f"🤯 逻辑分析阶段异常: {e}")
-            return
-        except Exception as e:
-            yield event.plain_result(f"🤯 思考过程发生异常: {e}")
             return
 
         # 4. 执行路由分发
