@@ -152,15 +152,9 @@ class MultimodalPDFRouterPlugin(Star):
                     await page.set_content(html_content)
                     await page.pdf(path=tmp_pdf_path, format="A4")
                     await browser.close()
-                                # 使用 Base64 发送以彻底规避权限问题
-                with open(tmp_pdf_path, "rb") as f:
-                    import base64
-                    b64_data = base64.b64encode(f.read()).decode()
-                
-                # 在某些平台上可能需要 file="base64://..." 格式，或者 File 组件有 fromBase64
-                # 根据 components.py，File 组件没有 fromBase64，但 to_dict 处理 file 字段
+                                # 恢复本地路径发送，adapter 会处理 file:// 转换
                 yield event.chain_result([
-                    File(name=os.path.basename(tmp_pdf_path), file=f"base64://{b64_data}")
+                    File(name=os.path.basename(tmp_pdf_path), file=tmp_pdf_path)
                 ])
             except Exception as pe:
                 yield event.plain_result(f"PDF 渲染失败: {pe}")
