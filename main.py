@@ -68,7 +68,6 @@ class MultimodalPDFRouterPlugin(Star):
                                                 img_url = f"file://{img_url}"
                                             image_urls.append(img_url)
                             elif isinstance(actual_msg, str):
-                                import re
                                 cq_images = re.findall(r'\[CQ:image,([^\]]+)\]', actual_msg)
                                 for params_str in cq_images:
                                     params = dict(p.split('=', 1) for p in params_str.split(',') if '=' in p)
