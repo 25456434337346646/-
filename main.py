@@ -145,7 +145,8 @@ class MultimodalPDFRouterPlugin(Star):
         elif mode == "pdf":
             yield event.plain_result("🚀 发现核心意图，正在为您整理精美 PDF 报告...")
             raw_pdf_content = ans_json.get("pdf_content", "")
-            mathjax_script = '<script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script><script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>'
+            mathjax_config = "<script>MathJax = {tex: {inlineMath: [['$','$'], ['\\\\(','\\\\)']], displayMath: [['$$','$$'], ['\\\\[','\\\\]']]}};</script>"
+            mathjax_script = f"{mathjax_config}<script id=\"MathJax-script\" src=\"https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js\"></script>"
             html_content = f"<!DOCTYPE html><html><head><meta charset='UTF-8'>{mathjax_script}<style>body{{font-family: 'Times New Roman', serif; padding: 40px; line-height: 1.6; color: #333;}} .header{{text-align: center; border-bottom: 2px solid #333; margin-bottom: 20px; padding-bottom: 10px;}} .content{{font-size: 14pt; margin-top: 20px;}} h1, h2{{color: #2c3e50;}}</style></head><body><div class='header'><h1>学术深度解析报告</h1><p>生成时间: {time.strftime('%Y-%m-%d %H:%M:%S')}</p></div><div class='content'>{raw_pdf_content}</div></body></html>"
             
             tmp_pdf_path = os.path.join(self.data_dir, f"report_{int(time.time())}.pdf")
