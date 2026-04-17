@@ -16,17 +16,22 @@ from astrbot.api import AstrBotConfig
 
 logger = logging.getLogger("astrbot")
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.8.6")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.8.7")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
-        # NapCat 运行在 macOS App Sandbox (com.tencent.qq) 中，
-        # 只能访问其容器内的文件，必须将 PDF 放在容器内部
-        self.data_dir = os.path.join(
-            os.path.expanduser("~"), "Library", "Containers",
-            "com.tencent.qq", "Data", "tmp", "astrbot_pdf_reports"
-        )
+        
+        # 动态环境感知：如果是 macOS 本地环境，则存入缓存，若是 Linux Docker 环境，走共享挂载。
+        import sys
+        if sys.platform == "darwin":
+            self.data_dir = os.path.join(
+                os.path.expanduser("~"), "Library", "Containers",
+                "com.tencent.qq", "Data", "tmp", "astrbot_pdf_reports"
+            )
+        else:
+            self.data_dir = "/AstrBot/data/pdf_reports"
+            
         os.makedirs(self.data_dir, exist_ok=True)
 
     @filter.command("ai", alias={"ask", "解答", "解析"})
