@@ -13,7 +13,7 @@ from astrbot.api import AstrBotConfig
 
 logger = logging.getLogger("astrbot")
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.7.5")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.8.2")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -44,11 +44,16 @@ class MultimodalPDFRouterPlugin(Star):
         image_urls = []
         segments = getattr(event.message_obj, "message", []) or getattr(event.message_obj, "components", [])
             
+        quoted_texts = []
         for comp in segments:
             if isinstance(comp, Plain):
                 question_texts.append(comp.text)
             elif isinstance(comp, Image):
-                image_urls.append(comp.url)
+                img_url = comp.url or comp.file
+                if img_url:
+                    if os.path.isabs(img_url) and not img_url.startswith("file://"):
+                        img_url = f"file://{img_url}"
+                    image_urls.append(img_url)
             elif isinstance(comp, Reply):
                 try:
                     target_msg_id = getattr(comp, "start_id", getattr(comp, "id", None))
@@ -56,12 +61,18 @@ class MultimodalPDFRouterPlugin(Star):
                     adapter = self.context.get_platform_inst(event.get_platform_name())
                     if adapter:
                         msg_data = await adapter.call_api("get_msg", message_id=target_msg_id)
+                        logger.info(f"[Reply诊断] get_msg 原始返回: {json.dumps(msg_data, ensure_ascii=False, default=str)[:500]}")
                         if msg_data:
                             actual_msg = msg_data.get("message") or msg_data.get("data", {}).get("message")
                             if isinstance(actual_msg, list):
                                 for segment in actual_msg:
-                                    if isinstance(segment, dict) and segment.get("type") == "image":
-                                        seg_data = segment.get("data", {})
+                                    if not isinstance(segment, dict): continue
+                                    seg_type = segment.get("type")
+                                    seg_data = segment.get("data", {})
+                                    if seg_type == "text":
+                                        txt = seg_data.get("text", "")
+                                        if txt: quoted_texts.append(txt)
+                                    elif seg_type == "image":
                                         img_url = seg_data.get("url") or seg_data.get("file") or seg_data.get("path")
                                         if img_url: 
                                             if os.path.isabs(img_url) and not img_url.startswith("file://"):
@@ -76,8 +87,11 @@ class MultimodalPDFRouterPlugin(Star):
                                         if os.path.isabs(img_url) and not img_url.startswith("file://"):
                                             img_url = f"file://{img_url}"
                                         image_urls.append(img_url)
+                                pure_text = re.sub(r'\[CQ:[^\]]+\]', '', actual_msg).strip()
+                                if pure_text:
+                                    quoted_texts.append(pure_text)
                 except Exception as e:
-                    logger.error(f"[多模态解析] 提取图片报错: {e}")
+                    logger.error(f"[多模态解析] 提取 Reply 内容报错: {e}", exc_info=True)
 
         question = " ".join(question_texts).replace("/ai", "").replace("/ask", "").replace("/解答", "").replace("/解析", "").strip()
         
@@ -132,7 +146,12 @@ class MultimodalPDFRouterPlugin(Star):
         else:
             final_system_prompt = "你是一个学术助教。严格输出 JSON：{\"mode\": \"pdf\", \"pdf_content\": \"HTML内容\"}"
         
-        combined_user_input = f"【用户指令】: {question}\n【图片像素级识别记录】: {image_description}"
+        combined_user_input = ""
+        if quoted_texts:
+            quoted_text_str = " ".join(quoted_texts).strip()
+            if quoted_text_str:
+                combined_user_input += f"【被引用的历史上下文】:\n{quoted_text_str}\n\n"
+        combined_user_input += f"【用户的当前指令】: {question}\n【图片像素级识别记录】: {image_description}"
         text_payload = {"model": text_model, "messages": [{"role": "system", "content": final_system_prompt}, {"role": "user", "content": combined_user_input}], "response_format": {"type": "json_object"}}
 
         ans_json = {}
