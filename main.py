@@ -14,7 +14,7 @@ from astrbot.api import AstrBotConfig
 
 logger = logging.getLogger("astrbot")
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.8.4")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.8.5")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -32,14 +32,13 @@ class MultimodalPDFRouterPlugin(Star):
         """内置大脑的交互逻辑：直接调用 LLM 并根据意图路由"""
         
         # 0. 获取配置
-        api_key = self.config.get("llm_api_key", "")
-        # 基础 URL 已拆分为 OCR（视觉） 和 文本（语言） 两个独立配置
-        ocr_base_url = self.config.get("ocr_api_url", "https://api.deepseek.com/v1")
+        text_api_key = self.config.get("text_api_key", "")
+        ocr_api_key = self.config.get("ocr_api_key", "")
         text_base_url = self.config.get("text_api_url", "https://api.deepseek.com/v1")
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        ocr_base_url = self.config.get("ocr_api_url", "https://api.deepseek.com/v1")
         
-        if not api_key:
-            yield event.plain_result("⚠️ 请先在插件配置页面填写您的 LLM API Key！")
+        if not text_api_key or not ocr_api_key:
+            yield event.plain_result("⚠️ 请先在插件配置页面填写 文本 和 OCR 的 API Key！")
             return
 
         # 1. 提取消息内容
@@ -256,7 +255,7 @@ class MultimodalPDFRouterPlugin(Star):
                         async with session.post(
                             f"{ocr_base_url.rstrip('/')}/chat/completions",
                             json=vision_payload,
-                            headers=headers,
+                            headers={"Authorization": f"Bearer {ocr_api_key}", "Content-Type": "application/json"},
                             timeout=90,
                         ) as resp:
                             if resp.status == 200:
@@ -301,7 +300,7 @@ class MultimodalPDFRouterPlugin(Star):
                     async with session.post(
                         f"{text_base_url.rstrip('/')}/chat/completions",
                         json=text_payload,
-                        headers=headers,
+                        headers={"Authorization": f"Bearer {text_api_key}", "Content-Type": "application/json"},
                         timeout=120,
                     ) as resp:
                         if resp.status == 200:
