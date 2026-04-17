@@ -6,28 +6,34 @@
         "obvious_hint": true,
         "default": ""
     },
-    "llm_base_url": {
-        "description": "API Base URL",
+    "text_api_url": {
+        "description": "逻辑大脑（文本）接口地址",
         "type": "string",
-        "hint": "接口地址，例如 https://api.deepseek.com/v1",
+        "hint": "负责分析和回答的接口，建议 DeepSeek 或 GPT-4o，例如 https://api.deepseek.com/v1",
+        "default": "https://api.deepseek.com/v1"
+    },
+    "ocr_api_url": {
+        "description": "视觉解析（OCR）接口地址",
+        "type": "string",
+        "hint": "负责图片提取细节的接口，需支持 Vision，例如 https://api.deepseek.com/v1",
         "default": "https://api.deepseek.com/v1"
     },
     "llm_model": {
-        "description": "文本对话模型",
+        "description": "逻辑大脑模型名称",
         "type": "string",
-        "hint": "处理普通聊天，例如 deepseek-chat",
+        "hint": "文本对话模型，例如 deepseek-chat",
         "default": "deepseek-chat"
     },
     "llm_vision_model": {
-        "description": "多模态(视觉)模型",
+        "description": "视觉识别模型名称",
         "type": "string",
-        "hint": "处理图片解析，需填支持 Vision 的模型，例如 gpt-4o 或 qwen-vl-max",
+        "hint": "多模态模型，例如 qwen-vl-max 或 gpt-4o",
         "default": "qwen-vl-max"
     },
     "delay_between_chat": {
-        "description": "消息发送时延",
+        "description": "交互时延",
         "type": "float",
-        "hint": "模拟真人打字速度",
+        "hint": "消息发送间隔（秒）",
         "default": 1.5
     }
 }
