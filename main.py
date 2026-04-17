@@ -70,49 +70,70 @@ class MultimodalPDFRouterPlugin(Star):
             # 处理文件组件，尤其是 PDF
             elif isinstance(comp, File):
                 file_url = comp.url or comp.file
-                if file_url and file_url.lower().endswith('.pdf'):
-                    # 将本地路径转为 file:// 以便读取
-                    if os.path.isabs(file_url) and not file_url.startswith("file://"):
-                        file_path = file_url
+                if file_url and file_url.lower().split('?')[0].endswith('.pdf') or 'fileType=4001' in str(file_url):
+                    file_path = ""
+                    # 判别是否为网络 HTTP 下载链接
+                    if file_url.startswith("http://") or file_url.startswith("https://"):
+                        logger.info(f"[PDF处理] 发现远程 PDF 链接，正在下载: {file_url[:80]}...")
+                        try:
+                            import urllib.request
+                            tmp_path = os.path.join(tempfile.gettempdir(), f"remote_{int(time.time())}.pdf")
+                            urllib.request.urlretrieve(file_url, tmp_path)
+                            file_path = tmp_path
+                            logger.info("[PDF处理] 远程 PDF 下载成功。")
+                        except Exception as e:
+                            logger.warning(f"[PDF处理] 远程 PDF 下载失败: {e}")
+                            continue
                     else:
-                        # 可能是相对路径或 file:// 前缀
-                        file_path = file_url.replace('file://', '')
+                        if os.path.isabs(file_url) and not file_url.startswith("file://"):
+                            file_path = file_url
+                        else:
+                            file_path = file_url.replace('file://', '')
+                            
                     try:
                         import PyPDF2
                         with open(file_path, 'rb') as f:
                             reader = PyPDF2.PdfReader(f)
-                            text_pages = []
-                            for page in reader.pages:
-                                txt = page.extract_text() or ''
-                                text_pages.append(txt)
+                            text_pages = [page.extract_text() or '' for page in reader.pages]
                             pdf_content = "\n".join(text_pages).strip()
                             if pdf_content:
                                 pdf_texts.append(pdf_content)
-                                logger.info(f"[PDF处理] 成功提取 PDF 文本, 长度 {len(pdf_content)}")
+                                logger.info(f"[PDF处理] 成功提取文本, 长度 {len(pdf_content)}")
                             else:
-                                # 文本为空，可能是扫描版 PDF，标记为需 OCR 的文件
                                 pdf_urls.append(file_path)
-                                logger.info(f"[PDF处理] PDF 未提取到文本，加入 OCR 队列: {file_path}")
+                                logger.info(f"[PDF处理] 全扫图文件，切入 OCR: {file_path}")
                     except Exception as e:
-                        logger.warning(f"[PDF处理] 读取或解析 PDF 失败: {e}")
+                        logger.warning(f"[PDF处理] 解析 PDF 失败: {e}")
             elif isinstance(comp, Reply):
                 try:
-                    # 增强Reply组件属性检测 - 尝试多种可能的消息ID属性
+                    logger.info(f"[Reply调试] 拦截到内置引用链: {getattr(comp, 'chain', 'None')}")
+                    
+                    # 1. 如果 AstrBot 原生解析了被引用消息的所有组件，则直接闪电提取
+                    if hasattr(comp, "chain") and comp.chain:
+                        for nested in comp.chain:
+                            if isinstance(nested, Plain):
+                                quoted_texts.append(nested.text)
+                            elif isinstance(nested, Image):
+                                image_urls.append(nested.url or nested.file)
+                            elif isinstance(nested, File):
+                                f_url = nested.url or nested.file
+                                if f_url and f_url.lower().endswith('.pdf'):
+                                    pdf_urls.append(f_url)
+                        logger.info("[Reply] 成功从原生 chain 中解析上下文组件，完美避开 API!")
+                        continue
+                        
+                    # 2. 如果只有 id 没有 chain，则执行原先的容错 fallback
                     target_msg_id = None
                     possible_id_attrs = ['start_id', 'id', 'message_id', 'msg_id', 'reply_id', 'target_id']
-                    
-                    logger.info(f"[Reply调试] Reply组件所有属性: {comp.__dict__}")
                     
                     for attr in possible_id_attrs:
                         if hasattr(comp, attr):
                             attr_value = getattr(comp, attr)
                             if attr_value:
                                 target_msg_id = attr_value
-                                logger.info(f"[Reply调试] 找到消息ID属性 {attr}: {target_msg_id}")
                                 break
                     
                     if not target_msg_id:
-                        logger.warning(f"[Reply调试] 无法从Reply组件获取消息ID，跳过处理")
                         continue
                         
                     # 使用异步超时机制获取平台适配器，防止阻塞
@@ -130,7 +151,7 @@ class MultimodalPDFRouterPlugin(Star):
                             )
                         # 若直接使用平台名称未能获取到适配器，尝试常见别名作为备选
                         if not adapter:
-                            fallback_names = ["qq", "qq_official", "aiocqhttp"]
+                            fallback_names = ["default", "qq", "qq_official", "aiocqhttp", "OneBot"]
                             for fn in fallback_names:
                                 if fn == platform_name:
                                     continue
