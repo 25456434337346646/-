@@ -33,7 +33,9 @@ class MultimodalPDFRouterPlugin(Star):
         
         # 0. 获取配置
         api_key = self.config.get("llm_api_key", "")
-        base_url = self.config.get("llm_base_url", "https://api.deepseek.com/v1")
+        # 基础 URL 已拆分为 OCR（视觉） 和 文本（语言） 两个独立配置
+        ocr_base_url = self.config.get("ocr_api_url", "https://api.deepseek.com/v1")
+        text_base_url = self.config.get("text_api_url", "https://api.deepseek.com/v1")
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         
         if not api_key:
@@ -46,7 +48,8 @@ class MultimodalPDFRouterPlugin(Star):
         segments = getattr(event.message_obj, "message", []) or getattr(event.message_obj, "components", [])
             
         quoted_texts = []
-        logger.info(f"[诊断_段落解析] 发现 {len(segments)} 个组件。分别对应的类型推导为: {[(type(c).__name__, getattr(c, '__dict__', str(c))) for c in segments]}")
+        # 输出组件数量，简化调试信息，避免在 f-string 中使用复杂的列表推导导致语法错误
+        logger.info(f"[诊断_段落解析] 发现 {len(segments)} 个组件。")
         for comp in segments:
             if isinstance(comp, Plain):
                 question_texts.append(comp.text)
@@ -89,6 +92,23 @@ class MultimodalPDFRouterPlugin(Star):
                                 loop.run_in_executor(executor, self.context.get_platform_inst, platform_name),
                                 timeout=5.0
                             )
+                        # 若直接使用平台名称未能获取到适配器，尝试常见别名作为备选
+                        if not adapter:
+                            fallback_names = ["qq", "qq_official", "aiocqhttp"]
+                            for fn in fallback_names:
+                                if fn == platform_name:
+                                    continue
+                                try:
+                                    adapter = await asyncio.wait_for(
+                                        loop.run_in_executor(executor, self.context.get_platform_inst, fn),
+                                        timeout=2.0
+                                    )
+                                    if adapter:
+                                        logger.info(f"[Reply调试] 使用平台别名 '{fn}' 成功获取适配器")
+                                        break
+                                except Exception:
+                                    # 忽略单个别名的异常，继续尝试其他别名
+                                    continue
                     except asyncio.TimeoutError:
                         logger.warning(f"[Reply调试] 获取平台适配器超时 (platform={platform_name})")
                         continue
@@ -222,33 +242,36 @@ class MultimodalPDFRouterPlugin(Star):
         image_description = ""
         if image_urls:
             vision_model = self.config.get("llm_vision_model", "qwen-vl-max")
-            vision_prompt = (
-                "## 核心指令：像素级学术 OCR 转录\n"
-                "1. **禁止概括**：原文转录图片中的所有文字，严禁忽略任何细节。\n"
-                "2. **数学公式强求**：所有数学符号必须使用 LaTeX 格式完整转录。\n"
-                "3. **逻辑关系**：保留题目的层级关系。\n"
-                "4. **原文输出**：直接输出识别内容，不要分析。"
-            )
             vision_payload = {
                 "model": vision_model,
                 "messages": [{"role": "user", "content": [{"type": "text", "text": vision_prompt}, *[{"type": "image_url", "image_url": {"url": url}} for url in image_urls]]}]
             }
-            
+
+            # 视觉 OCR 调用带重试的实现
             for attempt in range(max_retries + 1):
                 try:
-                    if attempt == 0: yield event.plain_result(f"🔍 正在通过 {vision_model} 像素级提取细节...")
+                    if attempt == 0:
+                        yield event.plain_result(f"🔍 正在通过 {vision_model} 像素级提取细节...")
                     async with aiohttp.ClientSession() as session:
-                        async with session.post(f"{base_url.rstrip('/')}/chat/completions", json=vision_payload, headers=headers, timeout=90) as resp:
+                        async with session.post(
+                            f"{ocr_base_url.rstrip('/')}/chat/completions",
+                            json=vision_payload,
+                            headers=headers,
+                            timeout=90,
+                        ) as resp:
                             if resp.status == 200:
                                 v_data = await resp.json()
                                 image_description = v_data['choices'][0]['message']['content']
                                 logger.info(f"[视觉中转] OCR 识别成功，字数: {len(image_description)}")
                                 break
-                            elif resp.status == 429: await asyncio.sleep(2)
+                            elif resp.status == 429:
+                                await asyncio.sleep(2)
                 except Exception as e:
                     logger.error(f"视觉异常: {e}")
                     if attempt == max_retries:
-                        yield event.plain_result(f"⚠️ 图片识别失败（已重试 {max_retries+1} 次）：{e}\n将尝试仅基于您的文字描述进行回答。")
+                        yield event.plain_result(
+                            f"⚠️ 图片识别失败（已重试 {max_retries+1} 次）：{e}\n将尝试仅基于您的文字描述进行回答。"
+                        )
                     else:
                         await asyncio.sleep(1)
 
@@ -275,7 +298,12 @@ class MultimodalPDFRouterPlugin(Star):
         for attempt in range(max_retries + 1):
             try:
                 async with aiohttp.ClientSession() as session:
-                    async with session.post(f"{base_url.rstrip('/')}/chat/completions", json=text_payload, headers=headers, timeout=120) as resp:
+                    async with session.post(
+                        f"{text_base_url.rstrip('/')}/chat/completions",
+                        json=text_payload,
+                        headers=headers,
+                        timeout=120,
+                    ) as resp:
                         if resp.status == 200:
                             res_data = await resp.json()
                             ans_str = res_data['choices'][0]['message']['content']
@@ -283,7 +311,8 @@ class MultimodalPDFRouterPlugin(Star):
                             if json_match:
                                 ans_json = json.loads(json_match.group())
                                 break
-                        elif resp.status == 429: await asyncio.sleep(3)
+                        elif resp.status == 429:
+                            await asyncio.sleep(3)
             except Exception as e:
                 if attempt == max_retries:
                     yield event.plain_result(f"🤯 逻辑分析深度超限: {e}")

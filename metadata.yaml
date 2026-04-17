@@ -1,7 +1,7 @@
 name: astrbot_plugin_multimodal_pdf_router
 display_name: AstrBot 多模态 PDF 路由插件
 desc: 基于意图路由与多模态能力的PDF生成插件。当前版本已全面强制 PDF 模式交付（取消文本闲聊模式）。
-version: 1.8.1
+version: 1.8.3
 author: Anti-Gravity Agent
 repo: https://github.com/25456434337346646/astrbot-plugin-multimodal-pdf-router
 astrbot_version: ">=4.23.1"

@@ -24,6 +24,18 @@
         "hint": "处理图片解析，需填支持 Vision 的模型，例如 gpt-4o 或 qwen-vl-max",
         "default": "qwen-vl-max"
     },
+    "ocr_api_url": {
+        "description": "OCR（视觉）模型 API 基础 URL",
+        "type": "string",
+        "hint": "用于图片识别的接口地址，例如 https://api.deepseek.com/v1",
+        "default": "https://api.deepseek.com/v1"
+    },
+    "text_api_url": {
+        "description": "文本（语言）模型 API 基础 URL",
+        "type": "string",
+        "hint": "用于文字生成的接口地址，例如 https://api.deepseek.com/v1",
+        "default": "https://api.deepseek.com/v1"
+    },
     "delay_between_chat": {
         "description": "消息发送时延",
         "type": "float",
