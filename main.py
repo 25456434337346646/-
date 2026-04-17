@@ -117,8 +117,9 @@ class MultimodalPDFRouterPlugin(Star):
                                 image_urls.append(nested.url or nested.file)
                             elif isinstance(nested, File):
                                 f_url = nested.url or nested.file
-                                if f_url and f_url.lower().endswith('.pdf'):
-                                    pdf_urls.append(f_url)
+                                if f_url and (f_url.lower().split('?')[0].endswith('.pdf') or 'fileType=4001' in str(f_url)):
+                                    # 将其推入外层重新走一次文件处理逻辑，以便触发 HTTP 下载！
+                                    segments.append(nested)
                         logger.info("[Reply] 成功从原生 chain 中解析上下文组件，完美避开 API!")
                         continue
                         
