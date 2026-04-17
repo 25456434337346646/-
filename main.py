@@ -92,17 +92,9 @@ class MultimodalPDFRouterPlugin(Star):
                             file_path = file_url.replace('file://', '')
                             
                     try:
-                        import PyPDF2
-                        with open(file_path, 'rb') as f:
-                            reader = PyPDF2.PdfReader(f)
-                            text_pages = [page.extract_text() or '' for page in reader.pages]
-                            pdf_content = "\n".join(text_pages).strip()
-                            if pdf_content:
-                                pdf_texts.append(pdf_content)
-                                logger.info(f"[PDF处理] 成功提取文本, 长度 {len(pdf_content)}")
-                            else:
-                                pdf_urls.append(file_path)
-                                logger.info(f"[PDF处理] 全扫图文件，切入 OCR: {file_path}")
+                        # 放弃 PyPDF2 纯文本抽取（因其无法读取 MathJax 及复杂中文排版），强制进入视觉 OCR 队列
+                        pdf_urls.append(file_path)
+                        logger.info(f"[PDF处理] 已将 PDF 文件排入视觉 OCR 渲染队列，准备转换为高精度图像: {file_path}")
                     except Exception as e:
                         logger.warning(f"[PDF处理] 解析 PDF 失败: {e}")
             elif isinstance(comp, Reply):
