@@ -309,9 +309,26 @@ class MultimodalPDFRouterPlugin(Star):
         if image_urls:
             vision_model = self.config.get("llm_vision_model", "qwen-vl-max")
             vision_prompt = "请精准提取图片中的所有文本内容。若包含数学公式，请务必使用清晰且符合规范的 LaTeX 语法输出。不遗漏任何细节。"
+            
+            import base64
+            api_image_urls = []
+            for img_url in image_urls:
+                if img_url.startswith("file://"):
+                    local_path = img_url.replace("file://", "")
+                    try:
+                        with open(local_path, "rb") as f:
+                            b64_str = base64.b64encode(f.read()).decode("utf-8")
+                            ext = local_path.split('.')[-1].lower()
+                            mime_type = f"image/{ext}" if ext in ["png", "jpg", "jpeg", "webp"] else "image/png"
+                            api_image_urls.append(f"data:{mime_type};base64,{b64_str}")
+                    except Exception as e:
+                        logger.error(f"[视觉中转] 无法读取本地图片进行编码: {e}")
+                else:
+                    api_image_urls.append(img_url)
+
             vision_payload = {
                 "model": vision_model,
-                "messages": [{"role": "user", "content": [{"type": "text", "text": vision_prompt}, *[{"type": "image_url", "image_url": {"url": url}} for url in image_urls]]}]
+                "messages": [{"role": "user", "content": [{"type": "text", "text": vision_prompt}, *[{"type": "image_url", "image_url": {"url": url}} for url in api_image_urls]]}]
             }
 
             # 视觉 OCR 调用带重试的实现
@@ -333,11 +350,15 @@ class MultimodalPDFRouterPlugin(Star):
                                 break
                             elif resp.status == 429:
                                 await asyncio.sleep(2)
+                            else:
+                                err_body = await resp.text()
+                                logger.error(f"[视觉中转] API返回异常 HTTP {resp.status}: {err_body}")
+                                await asyncio.sleep(2)
                 except Exception as e:
-                    logger.error(f"视觉异常: {e}")
+                    logger.error(f"[视觉中转] 内部异常: {e}")
                     if attempt == max_retries:
                         yield event.plain_result(
-                            f"⚠️ 图片识别失败（已重试 {max_retries+1} 次）：{e}\n将尝试仅基于您的文字描述进行回答。"
+                            f"⚠️ 图片提取失败（已重试 {max_retries+1} 次）：{e}\n降级为纯文字对话模式。"
                         )
                     else:
                         await asyncio.sleep(1)
