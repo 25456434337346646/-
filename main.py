@@ -70,7 +70,8 @@ class MultimodalPDFRouterPlugin(Star):
             # 处理文件组件，尤其是 PDF
             elif isinstance(comp, File):
                 file_url = comp.url or comp.file
-                if file_url and file_url.lower().split('?')[0].endswith('.pdf') or 'fileType=4001' in str(file_url):
+                f_name = getattr(comp, 'name', '') or str(file_url)
+                if file_url and f_name.lower().endswith('.pdf'):
                     file_path = ""
                     # 判别是否为网络 HTTP 下载链接
                     if file_url.startswith("http://") or file_url.startswith("https://"):
@@ -117,7 +118,8 @@ class MultimodalPDFRouterPlugin(Star):
                                 image_urls.append(nested.url or nested.file)
                             elif isinstance(nested, File):
                                 f_url = nested.url or nested.file
-                                if f_url and (f_url.lower().split('?')[0].endswith('.pdf') or 'fileType=4001' in str(f_url)):
+                                f_name = getattr(nested, 'name', '') or str(f_url)
+                                if f_url and f_name.lower().endswith('.pdf'):
                                     # 将其推入外层重新走一次文件处理逻辑，以便触发 HTTP 下载！
                                     segments.append(nested)
                         logger.info("[Reply] 成功从原生 chain 中解析上下文组件，完美避开 API!")
