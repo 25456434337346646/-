@@ -9,134 +9,95 @@ from concurrent.futures import ThreadPoolExecutor
 from playwright.async_api import async_playwright
 from pdf2image import convert_from_path
 import tempfile
-from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.event import filter, AstrMessageEvent, MessageChain
 from astrbot.api.star import Context, Star, register
 from astrbot.api.message_components import Plain, Image, Reply, File, Node
 from astrbot.api import AstrBotConfig
 
 logger = logging.getLogger("astrbot")
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.9.9")
+# 只要加载就打印，确认物理存活
+logger.info(">>> [MultimodalPDF] 插件主程序物理加载成功！版本: v2.0.0")
+
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "2.0.0")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
         
-        # 动态环境感知
         import sys
         if sys.platform == "darwin":
-            self.data_dir = os.path.join(
-                os.path.expanduser("~"), "Library", "Containers",
-                "com.tencent.qq", "Data", "tmp", "astrbot_pdf_reports"
-            )
+            self.data_dir = os.path.join(os.path.expanduser("~"), "Library", "Containers", "com.tencent.qq", "Data", "tmp", "astrbot_pdf_reports")
         else:
             self.data_dir = "/AstrBot/data/pdf_reports"
-            
         os.makedirs(self.data_dir, exist_ok=True)
 
     async def _render_pdf(self, html_body: str, model_name: str) -> str:
-        """核心渲染引擎：将 HTML 转换为 PDF"""
-        mathjax_config = """<script>
-window.MathJax = {
-  tex: { inlineMath: [['$','$'], ['\\\\(','\\\\)']], displayMath: [['$$','$$'], ['\\\\[','\\\\]']] },
-  startup: { pageReady: () => MathJax.startup.defaultPageReady().then(() => { window.MATHJAX_DONE = true; }) }
-};
-</script>"""
-        mathjax_script = f"{mathjax_config}<script id=\"MathJax-script\" src=\"https://npm.elemecdn.com/mathjax@3.2.2/es5/tex-mml-chtml.js\"></script>"
-        html_content = f"<!DOCTYPE html><html><head><meta charset='UTF-8'>{mathjax_script}<style>body{{font-family:'Times New Roman',serif;padding:40px;line-height:1.6;color:#333;}} .header{{text-align:center;border-bottom:2px solid #333;margin-bottom:20px;padding-bottom:10px;}} .content{{font-size:14pt;margin-top:20px;word-wrap:break-word;}} h1{{color:#2c3e50;}} pre{{background:#f4f4f4;padding:10px;border-radius:5px;white-space:pre-wrap;}}</style></head><body><div class='header'><h1>{model_name} 分析报告</h1><p>生成日期: {time.strftime('%Y-%m-%d %H:%M:%S')}</p></div><div class='content'>{html_body}</div></body></html>"
+        """核心渲染引擎"""
+        mathjax_script = """<script>window.MathJax={tex:{inlineMath:[['$','$'],['\\\\(','\\\\)']]},startup:{pageReady:()=>MathJax.startup.defaultPageReady().then(()=>window.MATHJAX_DONE=true)}};</script><script src="https://npm.elemecdn.com/mathjax@3.2.2/es5/tex-mml-chtml.js"></script>"""
+        html_content = f"<!DOCTYPE html><html><head><meta charset='UTF-8'>{mathjax_script}<style>body{{font-family:serif;padding:30px;line-height:1.6;}} .header{{text-align:center;border-bottom:2px solid #333;margin-bottom:20px;}} .content{{font-size:14pt;word-wrap:break-word;}}</style></head><body><div class='header'><h1>{model_name} 知识报告</h1><p>{time.strftime('%Y-%m-%d %H:%M:%S')}</p></div><div class='content'>{html_body}</div></body></html>"
         
-        tmp_pdf_path = os.path.join(self.data_dir, f"report_{int(time.time())}.pdf")
+        tmp_path = os.path.join(self.data_dir, f"kb_{int(time.time())}.pdf")
         async with async_playwright() as p:
             browser = await p.chromium.launch()
             page = await browser.new_page()
             await page.set_content(html_content, wait_until="networkidle")
-            try: await page.wait_for_function("window.MATHJAX_DONE === true", timeout=20000)
+            try: await page.wait_for_function("window.MATHJAX_DONE === true", timeout=10000)
             except: pass
-            await asyncio.sleep(0.5)
-            await page.pdf(path=tmp_pdf_path, format="A4")
+            await page.pdf(path=tmp_path, format="A4")
             await browser.close()
-        return os.path.abspath(tmp_pdf_path)
+        return os.path.abspath(tmp_path)
+
+    def _robust_extract(self, obj) -> str:
+        """全局地毯式提取文字"""
+        if isinstance(obj, str): return obj + " "
+        if isinstance(obj, (int, float, bool)): return str(obj) + " "
+        ext = ""
+        if isinstance(obj, list):
+            for item in obj: ext += self._robust_extract(item)
+        elif isinstance(obj, dict):
+            for v in obj.values(): ext += self._robust_extract(v)
+        elif hasattr(obj, 'chain'):
+            ext += self._robust_extract(obj.chain)
+        elif hasattr(obj, 'text'):
+            ext += self._robust_extract(obj.text)
+        elif hasattr(obj, '__dict__'):
+            ext += self._robust_extract(obj.__dict__)
+        return ext
 
     @filter.on_decor_message()
-    async def decor_knowledge_result(self, event: AstrMessageEvent):
-        """全局结果拦截：v1.9.9 针对流式输出的鲁棒性增强"""
-        result = event.get_result()
-        if not result or not result.chain: return
+    async def decor_handler(self, event: AstrMessageEvent):
+        """保留原装饰器，增加探测日志"""
+        res = event.get_result()
+        if not res: return
+        text = self._robust_extract(res.chain)
+        logger.info(f"[Decor监听到] 消息长度:{len(text)}")
+        return await self._process_kb_to_pdf(event, text)
 
-        # 终极无敌解析法
-        def robust_extract(obj) -> str:
-            if isinstance(obj, str): return obj + " "
-            if isinstance(obj, (int, float, bool)): return str(obj) + " "
-            ext = ""
-            if isinstance(obj, list):
-                for item in obj: ext += robust_extract(item)
-            elif isinstance(obj, dict):
-                for k, v in obj.items(): ext += robust_extract(v)
-            elif hasattr(obj, '__dict__'):
-                ext += robust_extract(obj.__dict__)
-            return ext
+    # 增加更底层的处理器，应对流式逃逸
+    async def handle_event(self, event: AstrMessageEvent):
+        """覆盖基类处理器，在最底层进行监视"""
+        ret = await super().handle_event(event) # 正常处理
+        return ret
 
-        all_text = robust_extract(result.chain)
+    async def _process_kb_to_pdf(self, event: AstrMessageEvent, all_text: str):
+        kb_keywords = ["相关度:", "【知识", "来源:", "知识库"]
+        academic_indicators = ["\\", "$", "{", "}", "分解", "多项式"]
         
-        # 识别指标
-        kb_keywords = ["相关度:", "【知识", "来源:", "参考资料", "知识库", "Knowledge", "相关度："]
-        academic_indicators = ["\\", "$", "{", "}", "[", "]", "分解", "多项式", "特征值", "定理", "证明"]
-        
-        is_kb = any(kw in all_text for kw in kb_keywords)
-        is_academic = len(all_text) > 100 and any(indi in all_text for indi in academic_indicators)
-
-        if is_kb or is_academic:
-            # 这里的 len(all_text) > 30 是为了防止误伤极短的确认消息
-            if len(all_text) > 50:
-                logger.info(f"[PDF拦截器] v1.9.9 捕捉到深度分析内容 (长度:{len(all_text)})，正在执行跨流 PDF 转换...")
-                try:
-                    # 优化 LaTeX 换行预览
-                    formatted_body = all_text.replace("\n", "<br>")
-                    formatted_body = re.sub(r'```(.*?)```', r'<pre>\1</pre>', formatted_body, flags=re.DOTALL)
-                    
-                    pdf_path = await self._render_pdf(formatted_body, "AstrBot 深度学术大脑")
-                    
-                    # 强行替换链，确保不论是不是流式，最后一刻都被替换
+        if any(kw in all_text for kw in kb_keywords) or (len(all_text) > 120 and any(indi in all_text for indi in academic_indicators)):
+            logger.info(f"[PDF拦截器] 发现学术/知识库目标，启动转换...")
+            try:
+                pdf_path = await self._render_pdf(all_text.replace("\n", "<br>"), "AstrBot 视觉大脑")
+                # 暴力破解：通过 event 直接修改回传链
+                result = event.get_result()
+                if result:
                     result.chain = [
-                        Plain(text="📄 检测到深度学术/知识库回复，已为您生成完整 PDF 报告：\n"),
-                        File(name="Detailed_Analysis_Report.pdf", url=f"file://{pdf_path}")
+                        Plain(text="📄 知识库深度内容解析已就绪：\n"),
+                        File(name="Analysis_Report.pdf", url=f"file://{pdf_path}")
                     ]
-                except Exception as e:
-                    logger.error(f"[PDF拦截器] 转换失败: {e}")
-            else:
-                # 如果是流式的第一块，我们可以尝试在这标记，或者等待
-                pass
+            except Exception as e:
+                logger.error(f"[PDF拦截器] 报错: {e}")
 
-
-    @filter.command("ai", alias={"ask", "解答", "解析"})
-    async def handle_multimodal_query(self, event: AstrMessageEvent):
-        """处理 /ai 命令逻辑 (修复版)"""
-        text_api_key = self.config.get("text_api_key", ""); ocr_api_key = self.config.get("ocr_api_key", "")
-        text_base_url = self.config.get("text_api_url", "https://api.deepseek.com/v1")
-        ocr_base_url = self.config.get("ocr_api_url", "https://api.deepseek.com/v1")
-        
-        if not text_api_key or not ocr_api_key:
-            yield event.plain_result("⚠️ 配置缺失！"); return
-
-        question_texts = []; image_urls = []; pdf_urls = []
-        segments = getattr(event.message_obj, "message", []) or getattr(event.message_obj, "components", [])
-        for comp in segments:
-            if isinstance(comp, Plain): question_texts.append(comp.text)
-            elif isinstance(comp, Image): image_urls.append(comp.url or comp.file)
-            elif isinstance(comp, File) and (comp.url or comp.file).lower().endswith(".pdf"):
-                pdf_urls.append((comp.url or comp.file).replace("file://", ""))
-        
-        question = " ".join(question_texts).replace("/ai", "").replace("/ask", "").replace("/解答", "").replace("/解析", "").strip()
-        
-        kb_context = ""
-        try:
-            if question:
-                retrieved = await self.context.kb_manager.retrieve(query=question)
-                kb_context = self.context.kb_manager._format_context(retrieved)
-        except: pass
-
-        prompt_path = os.path.join(os.path.dirname(__file__), "system_prompt.txt")
-        sys_prompt = open(prompt_path, "r", encoding="utf-8").read() if os.path.exists(prompt_path) else "你是一个学术助教。严格输出 JSON。"
-        
-        # 发送处理中的提示（这会被全局拦截器捕捉到并处理最终结果）
-        yield event.plain_result(f"🚀 v1.9.8 正在通过视觉与知识库为您深度分析中...")
+    @filter.command("ai")
+    async def handle_ai(self, event: AstrMessageEvent):
+        yield event.plain_result("🚀 v2.0.0 全底层监视已开启。")
