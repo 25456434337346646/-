@@ -57,7 +57,7 @@ class MultimodalPDFRouterPlugin(Star):
         result = event.get_result()
         if not result or not result.chain: return
 
-        # 终极无敌字典/对象解析法 - 升级版：无死角提取所有文本
+        # 终极无敌字典/对象解析法
         def robust_extract(obj) -> str:
             if isinstance(obj, str): return obj + " "
             if isinstance(obj, (int, float, bool)): return str(obj) + " "
@@ -65,31 +65,36 @@ class MultimodalPDFRouterPlugin(Star):
             if isinstance(obj, list):
                 for item in obj: ext += robust_extract(item)
             elif isinstance(obj, dict):
-                for k, v in obj.items():
-                    ext += robust_extract(v)
+                for k, v in obj.items(): ext += robust_extract(v)
             elif hasattr(obj, '__dict__'):
                 ext += robust_extract(obj.__dict__)
             return ext
 
         all_text = robust_extract(result.chain)
+        
+        # 实时探测日志
+        logger.info(f"[PDF拦截器] 正在审阅回复内容(长度:{len(all_text)})...")
 
         is_kb = False
+        # 增强识别：包含知识库标识 或 大量学术数学符号
         kb_keywords = ["相关度:", "【知识", "来源:", "参考资料", "知识库", "Knowledge", "相关度："]
+        academic_indicators = ["\\", "$", "{", "}", "[", "]", "分解", "多项式", "特征值"]
         
         if any(kw in all_text for kw in kb_keywords):
             is_kb = True
+        elif len(all_text) > 150 and any(indi in all_text for indi in academic_indicators):
+            is_kb = True # 判定为学术详细分析，也转 PDF
 
         if is_kb and len(all_text) > 30:
-            logger.info(f"[PDF拦截器] 监听到结构化内容，已根据特征识别为知识库响应，准备渲染 PDF...")
+            logger.info(f"[PDF拦截器] 判定为知识库/学术深度响应，准备生成 PDF...")
             try:
-                # 优化排版
                 formatted_body = all_text.replace("\n", "<br>")
                 formatted_body = re.sub(r'```(.*?)```', r'<pre>\1</pre>', formatted_body, flags=re.DOTALL)
                 
-                pdf_path = await self._render_pdf(formatted_body, "AstrBot 知识结构大脑")
+                pdf_path = await self._render_pdf(formatted_body, "AstrBot 学术大脑")
                 result.chain = [
-                    Plain(text="📄 检测到深层知识库结构化回复，已自动提取重制为 PDF 报告：\n"),
-                    File(name="Knowledge_Report.pdf", url=f"file://{pdf_path}")
+                    Plain(text="📄 学术分析已整理为 PDF 报告，请审阅：\n"),
+                    File(name="Knowledge_Analysis.pdf", url=f"file://{pdf_path}")
                 ]
             except Exception as e:
                 logger.error(f"[PDF拦截器] 转换失败: {e}")
