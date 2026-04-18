@@ -47,35 +47,46 @@ class MultimodalPDFRouterPlugin(Star):
 
     @filter.on_decor_message()
     async def decor_knowledge_result(self, event: AstrMessageEvent):
-        """全局结果拦截：不仅拦截 Plain，更要拦截 Node 组件"""
+        """全局结果拦截：不仅拦截 Plain，更要拦截 Node 等复杂的深层组件"""
         result = event.get_result()
         if not result or not result.chain: return
 
-        all_text = ""
+        # 终极无敌字典/对象解析法
+        def robust_extract(obj) -> str:
+            if isinstance(obj, str): return obj
+            if isinstance(obj, (int, float, bool)): return str(obj)
+            ext = ""
+            if isinstance(obj, list):
+                for item in obj: ext += robust_extract(item) + "\n"
+            elif isinstance(obj, dict):
+                for k, v in obj.items():
+                    if k in ["text", "content", "msg", "message", "title", "summary"]:
+                        if isinstance(v, str): ext += v + "\n"
+                        else: ext += robust_extract(v) + "\n"
+                    elif isinstance(v, (dict, list)):
+                        ext += robust_extract(v)
+            elif hasattr(obj, '__dict__'):
+                ext += robust_extract(obj.__dict__)
+            return ext
+
+        all_text = robust_extract(result.chain)
+
         is_kb = False
-        kb_keywords = ["相关度:", "【知识", "来源:", "参考资料", "知识库", "Knowledge"]
-
-        def extract_content(components):
-            nonlocal all_text, is_kb
-            for comp in components:
-                if isinstance(comp, Plain):
-                    txt = comp.text
-                    all_text += txt + "\n"
-                    if any(kw in txt for kw in kb_keywords): is_kb = True
-                elif isinstance(comp, Node):
-                    if hasattr(comp, 'content') and comp.content:
-                        extract_content(comp.content)
-                    elif hasattr(comp, 'message') and comp.message:
-                        extract_content(comp.message)
-
-        extract_content(result.chain)
+        kb_keywords = ["相关度:", "【知识", "来源:", "参考资料", "知识库", "Knowledge", "相关度："]
+        
+        if any(kw in all_text for kw in kb_keywords):
+            is_kb = True
 
         if is_kb and len(all_text) > 30:
-            logger.info(f"[PDF拦截器] 监听到知识库 Node 内容，启动 PDF 转换...")
+            logger.info(f"[PDF拦截器] 监听到结构化内容，已提取长度为 {len(all_text)} 的文字，准备渲染 PDF...")
             try:
-                pdf_path = await self._render_pdf(all_text.replace("\n", "<br>"), "AstrBot 知识大脑")
+                # 优化排版
+                formatted_body = all_text.replace("\n", "<br>")
+                formatted_body = re.sub(r'```(.*?)```', r'<pre>\1</pre>', formatted_body, flags=re.DOTALL)
+                
+                pdf_path = await self._render_pdf(formatted_body, "AstrBot 知识大脑")
                 result.chain = [
-                    Plain(text="📄 检测到知识库结构化回复，已自动为您重制为 PDF 报告：\n"),
+                    Plain(text="📄 检测到深层知识库结构化回复，已自动提取重制为 PDF 报告：\n"),
                     File(name="Knowledge_Report.pdf", url=f"file://{pdf_path}")
                 ]
             except Exception as e:
