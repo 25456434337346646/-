@@ -16,7 +16,7 @@ from astrbot.api import AstrBotConfig
 
 logger = logging.getLogger("astrbot")
 
-@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.9.8")
+@register("astrbot_plugin_multimodal_pdf_router", "Anti-Gravity Agent", "基于‘视觉中转’链路的深度解析插件", "1.9.9")
 class MultimodalPDFRouterPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
