@@ -20,3 +20,5 @@ data/
 *.log
 config.json
 .env
+.github_token
+_run_*.py
