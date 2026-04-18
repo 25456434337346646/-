@@ -57,20 +57,16 @@ class MultimodalPDFRouterPlugin(Star):
         result = event.get_result()
         if not result or not result.chain: return
 
-        # 终极无敌字典/对象解析法
+        # 终极无敌字典/对象解析法 - 升级版：无死角提取所有文本
         def robust_extract(obj) -> str:
-            if isinstance(obj, str): return obj
-            if isinstance(obj, (int, float, bool)): return str(obj)
+            if isinstance(obj, str): return obj + " "
+            if isinstance(obj, (int, float, bool)): return str(obj) + " "
             ext = ""
             if isinstance(obj, list):
-                for item in obj: ext += robust_extract(item) + "\n"
+                for item in obj: ext += robust_extract(item)
             elif isinstance(obj, dict):
                 for k, v in obj.items():
-                    if k in ["text", "content", "msg", "message", "title", "summary"]:
-                        if isinstance(v, str): ext += v + "\n"
-                        else: ext += robust_extract(v) + "\n"
-                    elif isinstance(v, (dict, list)):
-                        ext += robust_extract(v)
+                    ext += robust_extract(v)
             elif hasattr(obj, '__dict__'):
                 ext += robust_extract(obj.__dict__)
             return ext
@@ -84,7 +80,7 @@ class MultimodalPDFRouterPlugin(Star):
             is_kb = True
 
         if is_kb and len(all_text) > 30:
-            logger.info(f"[PDF拦截器] 监听到结构化内容，已提取长度为 {len(all_text)} 的文字，准备渲染 PDF...")
+            logger.info(f"[PDF拦截器] 监听到结构化内容，已根据特征识别为知识库响应，准备渲染 PDF...")
             try:
                 # 优化排版
                 formatted_body = all_text.replace("\n", "<br>")
