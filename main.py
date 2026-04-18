@@ -59,11 +59,11 @@ window.MathJax = {
 
     @filter.on_decor_message()
     async def decor_knowledge_result(self, event: AstrMessageEvent):
-        """全局结果拦截：使用 v1.9.8 升级版地毯式提取引擎"""
+        """全局结果拦截：v1.9.9 针对流式输出的鲁棒性增强"""
         result = event.get_result()
         if not result or not result.chain: return
 
-        # 终极提取器
+        # 终极无敌解析法
         def robust_extract(obj) -> str:
             if isinstance(obj, str): return obj + " "
             if isinstance(obj, (int, float, bool)): return str(obj) + " "
@@ -78,26 +78,35 @@ window.MathJax = {
 
         all_text = robust_extract(result.chain)
         
-        # 指标识别
-        is_kb = False
-        kb_keywords = ["相关度:", "【知识", "来源:", "参考资料", "知识库", "Knowledge"]
-        academic_indicators = ["\\", "$", "{", "}", "[", "]", "分解", "多项式", "特征值"]
+        # 识别指标
+        kb_keywords = ["相关度:", "【知识", "来源:", "参考资料", "知识库", "Knowledge", "相关度："]
+        academic_indicators = ["\\", "$", "{", "}", "[", "]", "分解", "多项式", "特征值", "定理", "证明"]
         
-        if any(kw in all_text for kw in kb_keywords): is_kb = True
-        elif len(all_text) > 150 and any(indi in all_text for indi in academic_indicators): is_kb = True
+        is_kb = any(kw in all_text for kw in kb_keywords)
+        is_academic = len(all_text) > 100 and any(indi in all_text for indi in academic_indicators)
 
-        if is_kb and len(all_text) > 30:
-            logger.info(f"[PDF拦截器] v1.9.8 成功捕获目标内容 (长度:{len(all_text)})，开始渲染附件...")
-            try:
-                formatted_body = all_text.replace("\n", "<br>")
-                formatted_body = re.sub(r'```(.*?)```', r'<pre>\1</pre>', formatted_body, flags=re.DOTALL)
-                pdf_path = await self._render_pdf(formatted_body, "AstrBot 学术大脑")
-                result.chain = [
-                    Plain(text="📄 学术分析简报已通过 v1.9.8 引擎自动整理：\n"),
-                    File(name="Analysis_Report.pdf", url=f"file://{pdf_path}")
-                ]
-            except Exception as e:
-                logger.error(f"[PDF拦截器] 转换失败: {e}")
+        if is_kb or is_academic:
+            # 这里的 len(all_text) > 30 是为了防止误伤极短的确认消息
+            if len(all_text) > 50:
+                logger.info(f"[PDF拦截器] v1.9.9 捕捉到深度分析内容 (长度:{len(all_text)})，正在执行跨流 PDF 转换...")
+                try:
+                    # 优化 LaTeX 换行预览
+                    formatted_body = all_text.replace("\n", "<br>")
+                    formatted_body = re.sub(r'```(.*?)```', r'<pre>\1</pre>', formatted_body, flags=re.DOTALL)
+                    
+                    pdf_path = await self._render_pdf(formatted_body, "AstrBot 深度学术大脑")
+                    
+                    # 强行替换链，确保不论是不是流式，最后一刻都被替换
+                    result.chain = [
+                        Plain(text="📄 检测到深度学术/知识库回复，已为您生成完整 PDF 报告：\n"),
+                        File(name="Detailed_Analysis_Report.pdf", url=f"file://{pdf_path}")
+                    ]
+                except Exception as e:
+                    logger.error(f"[PDF拦截器] 转换失败: {e}")
+            else:
+                # 如果是流式的第一块，我们可以尝试在这标记，或者等待
+                pass
+
 
     @filter.command("ai", alias={"ask", "解答", "解析"})
     async def handle_multimodal_query(self, event: AstrMessageEvent):
